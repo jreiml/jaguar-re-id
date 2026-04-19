@@ -30,12 +30,12 @@ from .data import (
 )
 from .embed import load_embeddings, reorder_embeddings, save_embeddings, extract_embeddings
 from .eval import identity_balanced_map
-from .losses import CosFaceLayer, SubCenterArcFaceLayer, triplet_semi_hard_loss
+from .losses import CircleLossWithClassPrototypes, CosFaceLayer, SubCenterArcFaceLayer, triplet_semi_hard_loss
 from .model import ArcFaceLayer, EmbeddingProjection, count_parameters, load_backbone
 from .paths import CHECKPOINTS, EMB_CACHE, KAGGLE_R1, SPLITS
 
 
-LOSS_NAMES = ["arcface", "cosface", "subcenter_arcface", "triplet"]
+LOSS_NAMES = ["arcface", "cosface", "subcenter_arcface", "triplet", "circle"]
 
 
 @dataclass
@@ -56,6 +56,8 @@ class LossRunConfig:
     cosface_margin: float = 0.35
     subcenters: int = 3
     triplet_margin: float = 0.3
+    circle_gamma: float = 64.0
+    circle_margin: float = 0.25
     seed: int = 42
     split_version: str = "v1"
     run_name: str = ""
@@ -102,6 +104,8 @@ def _build_head(loss: str, embedding_dim: int, num_classes: int, cfg: LossRunCon
         return CosFaceLayer(embedding_dim, num_classes, margin=cfg.cosface_margin, scale=cfg.arcface_scale)
     if loss == "subcenter_arcface":
         return SubCenterArcFaceLayer(embedding_dim, num_classes, k_subcenters=cfg.subcenters, margin=cfg.arcface_margin, scale=cfg.arcface_scale)
+    if loss == "circle":
+        return CircleLossWithClassPrototypes(embedding_dim, num_classes, gamma=cfg.circle_gamma, margin=cfg.circle_margin)
     if loss == "triplet":
         return None  # no classifier head
     raise ValueError(f"Unknown loss {loss}")
@@ -164,6 +168,8 @@ def train_one_loss(cfg: LossRunConfig) -> dict:
             if cfg.loss == "triplet":
                 emb_n = F.normalize(emb, p=2, dim=1)
                 loss = triplet_semi_hard_loss(emb_n, y, margin=cfg.triplet_margin)
+            elif cfg.loss == "circle":
+                loss = head(emb, y)  # circle head already returns a scalar loss
             else:
                 logits = head(emb, y)
                 loss = ce(logits, y)

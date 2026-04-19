@@ -66,6 +66,47 @@ class SubCenterArcFaceLayer(nn.Module):
         return output * self.scale
 
 
+class CircleLossWithClassPrototypes(nn.Module):
+    """Circle loss (Sun et al., CVPR 2020) in its class-prototype formulation.
+
+    For each embedding e:
+      - s_p = cos(e, w_y) for the ground-truth class y
+      - s_n = cos(e, w_j) for j != y
+    The per-sample loss is a single softplus of a weighted log-sum-exp —
+    returns a scalar `.item()`-able loss value when reduced.
+    """
+
+    def __init__(self, embedding_dim: int, num_classes: int, gamma: float = 64.0, margin: float = 0.25) -> None:
+        super().__init__()
+        self.gamma = gamma
+        self.margin = margin
+        self.weight = nn.Parameter(torch.empty(num_classes, embedding_dim))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, embeddings: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        e = F.normalize(embeddings, p=2, dim=1)
+        w = F.normalize(self.weight, p=2, dim=1)
+        sim = F.linear(e, w).clamp(-1.0, 1.0)
+
+        one_hot = torch.zeros_like(sim)
+        one_hot.scatter_(1, labels.view(-1, 1).long(), 1)
+
+        # Positive and negative similarities (one of each per sample in this
+        # class-prototype variant).
+        s_p = (sim * one_hot).sum(dim=1)  # (B,)
+        alpha_p = torch.clamp(1.0 + self.margin - s_p, min=0.0).detach()
+        logit_p = -self.gamma * alpha_p * (s_p - (1.0 - self.margin))  # (B,)
+
+        # For negatives we still have (num_classes - 1) scores per sample.
+        s_n = sim.masked_fill(one_hot.bool(), float("-1e4"))  # exclude positive
+        alpha_n = torch.clamp(s_n + self.margin, min=0.0).detach()
+        logit_n = self.gamma * alpha_n * (s_n - self.margin)  # (B, C)
+
+        # Loss = softplus(logit_p + logsumexp(logit_n))
+        lse_n = torch.logsumexp(logit_n, dim=1)
+        return F.softplus(logit_p + lse_n).mean()
+
+
 def triplet_semi_hard_loss(embeddings: torch.Tensor, labels: torch.Tensor, margin: float = 0.3) -> torch.Tensor:
     """Batch semi-hard triplet loss on L2-normalized embeddings.
 
