@@ -23,7 +23,7 @@ BACKBONES = [
     ("mega-l384", "hf-hub:BVRA/MegaDescriptor-L-384", 384),
     ("convnextv2-large", "convnextv2_large.fcmae_ft_in22k_in1k_384", 384),
     ("dinov2-vitl14", "vit_large_patch14_reg4_dinov2.lvd142m", 518),
-    ("efficientnetv2-l", "tf_efficientnetv2_l.in21k_ft_in1k", 480),
+    ("efficientnetv2-l", "tf_efficientnetv2_l.in21k_ft_in1k", 384),
 ]
 
 
