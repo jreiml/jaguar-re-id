@@ -92,32 +92,34 @@ Each entry conforms to the template in `CLAUDE.md` / `docs/assessment.md`.
 
 ---
 
-### E11: Does deduplication of the training set improve re-ID performance? (Q14 follow-up)
+### E11: Does deduplication of the training set improve re-ID performance? (Q14 follow-up, 4-seed)
 
-- **Research question / hypothesis:** E3 showed 209 exact-pHash duplicate pairs (Hamming = 0) in the training set, all within-identity, no cross-identity. Camera-trap burst frames are common. *If these duplicates are noise, removing them should help training; if they are informative (multiple views of the same jaguar in quick succession), removing them should hurt.*
-- **Intervention:** For every cluster of exact-pHash-matching filenames, keep the lexicographically-first filename, drop the rest. Train the Q5/Q12-winning recipe (DINOv2-ViT-L/14 + 256-d projection + ArcFace) on (a) the full 1416-image train split and (b) the deduplicated 1321-image train split. Same val_v1 val set. Same hyperparameters, same seed, same schedule.
-- **Held fixed:** backbone, loss, projection arch, lr, weight decay, batch size, dropout, 30 epochs patience 10, ReduceLROnPlateau on val mAP, identity-disjoint val_v1 split (only train side changes).
-- **Evaluation protocol:** Identity-balanced mAP on val_v1.
-- **Results:**
+- **Research question / hypothesis:** E3 found 209 exact-pHash duplicate pairs in the training set (all within-identity, no cross-identity). Camera-trap burst frames are common. *If these duplicates are noise, removing them should help training; if they are informative (multiple views of the same jaguar in quick succession), removing them should hurt.*
+- **Intervention:** For every cluster of exact-pHash-matching filenames keep the lexicographically-first, drop the rest. Re-train the Q5/Q12-winning recipe (DINOv2-ViT-L/14 + 256-d projection + ArcFace) on (a) the full 1416-image train split and (b) the 1321-image deduplicated split. Same val_v1, same hyperparameters, **4 seeds** (42, 7, 1337, 2024) per condition — the original single-seed result was an outlier and needed calibration against the E13 seed-noise floor.
+- **Held fixed:** backbone, loss, projection arch, lr, weight decay, batch size, dropout, 30 epochs patience 10, ReduceLROnPlateau on val mAP, identity-disjoint val_v1 (only train side changes).
+- **Evaluation protocol:** Identity-balanced mAP on val_v1 per seed; mean ± std per condition; pooled σ on the difference.
+- **Results (4 seeds each):**
 
-  | Train set | Images | Val mAP (best) | Δ vs full |
-  | --------- | ------ | -------------- | --------- |
-  | Full train (E6-arcface reference) | 1416 | **0.6822** | — |
-  | Exact-pHash deduplicated | 1321 (−95 = −6.7%) | **0.6482** | **−0.0340** |
+  | Train set | Images | seed 42 | seed 7 | seed 1337 | seed 2024 | **mean ± std** |
+  | --------- | ------ | ------- | ------ | --------- | --------- | -------------- |
+  | Full | 1416 | 0.6822 | 0.6629 | 0.6892 | 0.6945 | **0.6822 ± 0.0120** |
+  | pHash-deduplicated | 1321 (−95) | 0.6482 | 0.6625 | 0.6943 | 0.6985 | **0.6759 ± 0.0212** |
+
+  **Δ (dedup − full) = −0.0063 ± 0.0243 (pooled σ).**
 
 - **Interpretation:**
-  - **Deduplication hurts.** Removing 95 exact-pHash duplicates costs 0.034 absolute val mAP — more than the spread of the Q12 loss comparison (0.017).
-  - The "duplicates" found by perceptual hashing are mostly **burst-frame near-duplicates from the same camera trap event**, not photometric copies. They capture small pose / lighting / scale variations that help the projection head learn invariances. Stripping them reduces both per-identity sample count and the diversity signal ArcFace needs.
-  - **Implication for Q13 (data curation).** A naive "drop exact duplicates" strategy is counter-productive for this dataset. A more sophisticated curation — e.g., select temporally spread samples per identity or drop only the HEAD-class duplicates to reduce class imbalance without hurting rare-class coverage — would likely dominate this simple rule. Q13 follow-up.
-  - **Implication for E3.** The near-duplicate count reported there should be interpreted as an informativeness signal, not a data-hygiene problem.
-  - **Failure mode**: the dedup split has 95 fewer samples (6.7%); controlled for sample count, an oversampled-to-1416 dedup training might behave differently. A proper Q13 study with sample-count-matched comparisons would resolve this.
-- **Credit:** 1.0 Valid — clear question, controlled intervention (only one factor: with/without dedup), appropriate evaluation (same-val mAP), concrete interpretation distinguishing "noise" vs "informative redundancy", and a specific follow-up protocol. A negative result with a lesson.
+  - **No reliable effect.** The 4-seed mean Δ is −0.006 mAP — **less than 1/4 of one pooled standard deviation** (|Δ| / σ_pooled = 0.26). The original single-seed (42) gap of −0.034 was an unlucky seed (seed 42 got the worst dedup roll among the four); the multi-seed retrial corrects that conclusion.
+  - **Interpretation at the population level:** exact-pHash dedup neither meaningfully helps nor meaningfully hurts at this rate (6.7% of images removed). The duplicates are informative **at the margin** (seed 42), but on average the model recovers the information from the non-duplicate neighbours during training.
+  - **Value of the revised E11.** The single-seed version would have supported a wrong downstream recommendation ("don't dedup"). The 4-seed version supports the correct one ("dedup at this threshold is neutral for retrieval; if you need it for data-hygiene reasons — say, to reduce storage or class imbalance — do it without worrying about a retrieval hit"). This is why Q22-style seed variance is non-negotiable for small-gap conclusions.
+  - **Cross-reference to E3 and E13:** E3 establishes that dedup is SAFE against labelling leaks (no cross-identity exact duplicates). E13 establishes the seed-noise floor (σ ≈ 0.011-0.012). This E11 update uses both: zero-leak at the detection level, and the seed-noise level to decide that the dedup effect is not significant.
+- **Credit:** 1.0 Valid — question is explicit; 4-seed controlled comparison; appropriate significance-aware interpretation (Δ ≪ pooled σ → null result); concrete recommendation (dedup at this threshold is a wash). A properly-calibrated null result is strictly more useful than an over-confident single-seed one.
 - **Artifacts:**
-  - Code: `src/jaguar_reid/experiments/exp_E11_dedup_effect.py`.
-  - Data: `logs/exp_E11_dedup.json`, `splits/val_v1_dedup.json` (deduped split for reproducibility).
-  - Checkpoint: `checkpoints/E11-dedup-arcface.pth`.
-  - Parent (full-train): `checkpoints/E6-arcface.pth`.
-  - W&B: `exp_E11_dedup` group on `zyna/jaguar-reid-jreiml`, run `E11-dedup-arcface`.
+  - Code: `src/jaguar_reid/experiments/exp_E11_dedup_effect.py` (multi-seed version).
+  - Data: `logs/exp_E11_dedup.json` (4-seed pair of vectors).
+  - Deduped split: `splits/val_v1_dedup.json`.
+  - Checkpoints: `checkpoints/E11-dedup-arcface-seed{42,7,1337,2024}.pth` (seed-42 aliased to legacy `E11-dedup-arcface.pth`).
+  - Full-train reference: `checkpoints/E6-arcface.pth` (seed 42) + `E13-arcface-seed{7,1337,2024}.pth`.
+  - W&B: group `exp_E11_dedup`, runs `E11-dedup-arcface-seed*`.
 
 ---
 

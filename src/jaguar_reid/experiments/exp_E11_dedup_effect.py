@@ -47,6 +47,7 @@ def dedup_filenames(train_fns: list[str], imgs_dir: Path) -> tuple[list[str], in
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--num-epochs", type=int, default=30)
+    p.add_argument("--seeds", type=int, nargs="+", default=[42, 7, 1337, 2024])
     args = p.parse_args()
 
     split = IdentityDisjointSplit.load(SPLITS / "val_v1.json")
@@ -57,7 +58,6 @@ def main() -> None:
     print(f"Original train size: {len(split.train_filenames)}")
     print(f"After dedup (exact pHash): {len(kept)} (dropped {dropped})")
 
-    # Build a dedup split (same val, smaller train).
     dedup_split = IdentityDisjointSplit(
         train_filenames=kept,
         val_filenames=split.val_filenames,
@@ -70,29 +70,65 @@ def main() -> None:
     dedup_path = SPLITS / "val_v1_dedup.json"
     dedup_split.save(dedup_path)
 
-    # Train: full vs dedup. "Full" checkpoint is re-used from E6-arcface.
-    results = {"full_train_val_map": None, "dedup_train_val_map": None,
-               "n_train_full": len(split.train_filenames), "n_train_dedup": len(kept),
-               "dedup_dropped": dropped}
-
-    # Re-train DINOv2 + ArcFace on the dedup split only.
-    cfg = LossRunConfig(
-        loss="arcface",
-        backbone="vit_large_patch14_reg4_dinov2.lvd142m",
-        input_size=518,
-        num_epochs=args.num_epochs,
-        run_name="E11-dedup-arcface",
-        split_version="v1_dedup",
-        wandb_group="exp_E11_dedup",
-    )
-    out = train_one_loss(cfg)
-    results["dedup_train_val_map"] = out["best_val_map"]
-
-    # Load pre-existing E6-arcface result for the full-train value.
+    # Run multiple seeds of dedup training to get a std on the measured Δ.
     import torch
-    ck = torch.load(Path("checkpoints/E6-arcface.pth"), map_location="cpu", weights_only=False)
-    results["full_train_val_map"] = float(ck["val_map"])
-    results["delta_vs_full"] = results["dedup_train_val_map"] - results["full_train_val_map"]
+    import numpy as np
+    dedup_maps: list[float] = []
+    for seed in args.seeds:
+        run_name = f"E11-dedup-arcface-seed{seed}"
+        ckpt_path = Path(f"checkpoints/{run_name}.pth")
+        if ckpt_path.exists():
+            d = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+            dedup_maps.append(float(d["val_map"]))
+            print(f"[reuse] seed={seed}: {d['val_map']:.4f}")
+            continue
+        # Seed 42 may be reusable from the original single-seed run.
+        if seed == 42 and Path("checkpoints/E11-dedup-arcface.pth").exists():
+            d = torch.load("checkpoints/E11-dedup-arcface.pth", map_location="cpu", weights_only=False)
+            dedup_maps.append(float(d["val_map"]))
+            print(f"[reuse] seed=42 from legacy: {d['val_map']:.4f}")
+            continue
+        cfg = LossRunConfig(
+            loss="arcface",
+            backbone="vit_large_patch14_reg4_dinov2.lvd142m",
+            input_size=518,
+            num_epochs=args.num_epochs,
+            seed=seed,
+            run_name=run_name,
+            split_version="v1_dedup",
+            wandb_group="exp_E11_dedup",
+        )
+        out = train_one_loss(cfg)
+        dedup_maps.append(float(out["best_val_map"]))
+
+    # Compare against E13 multi-seed baseline (full train).
+    full_json = Path("logs/exp_E13_multiseed.json")
+    if full_json.exists():
+        e13 = json.loads(full_json.read_text())
+        full_maps = [r["best_val_map"] for r in e13["per_seed"] if r["seed"] in args.seeds]
+    else:
+        # Fallback: pull from individual checkpoints.
+        full_maps = []
+        for seed in args.seeds:
+            fp = Path(f"checkpoints/E13-arcface-seed{seed}.pth")
+            if seed == 42: fp = Path("checkpoints/E6-arcface.pth")
+            d = torch.load(fp, map_location="cpu", weights_only=False)
+            full_maps.append(float(d["val_map"]))
+
+    results = {
+        "seeds": args.seeds,
+        "dedup_val_maps": dedup_maps,
+        "full_val_maps": full_maps,
+        "n_train_full": len(split.train_filenames),
+        "n_train_dedup": len(kept),
+        "dedup_dropped": dropped,
+        "dedup_mean": float(np.mean(dedup_maps)),
+        "dedup_std": float(np.std(dedup_maps)),
+        "full_mean": float(np.mean(full_maps)),
+        "full_std": float(np.std(full_maps)),
+        "delta_mean": float(np.mean(dedup_maps) - np.mean(full_maps)),
+        "delta_std_pooled": float(np.sqrt(np.var(dedup_maps) + np.var(full_maps))),
+    }
 
     LOGS.mkdir(parents=True, exist_ok=True)
     (LOGS / "exp_E11_dedup.json").write_text(json.dumps(results, indent=2))
