@@ -28,8 +28,9 @@ from .data import (
     test_csv_path,
     test_images_dir,
 )
+from .bg_replace import BgMode
 from .embed import extract_embeddings, load_embeddings, reorder_embeddings, save_embeddings
-from .model import ArcFaceModel, load_backbone
+from .model import ArcFaceModel, EmbeddingProjection, load_backbone
 from .paths import EMB_CACHE, SUBMISSIONS
 
 
@@ -58,6 +59,7 @@ def _get_or_cache_backbone_test_emb(
     device: str,
     cache_key: str,
     num_workers: int = 4,
+    bg_mode: BgMode = BgMode.AS_IS,
 ) -> tuple[np.ndarray, list[str]]:
     """Extract frozen backbone features for every unique image in test.csv."""
     pairs = pd.read_csv(test_csv_path(round_dir))
@@ -78,6 +80,7 @@ def _get_or_cache_backbone_test_emb(
         num_workers=num_workers,
         device=device,
         desc=f"embed:{cache_key}",
+        bg_mode=bg_mode,
     )
     save_embeddings(cache_path, emb, fns)
     del backbone

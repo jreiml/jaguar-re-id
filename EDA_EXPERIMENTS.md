@@ -15,7 +15,7 @@ Each entry conforms to the template in `CLAUDE.md` / `docs/assessment.md`.
 | E4 | Background intervention definition & catalogue of 6 variants | Q0, Q1 | 1.0 | committed |
 | E5 | Background reliance of frozen MegaDescriptor (bg-replacement sweep) | Q26 | 1.0 + 0.5 bonus | committed |
 | E10 | View-type filtering (pose proxy) | Q24 | 1.0 | planned (Phase 3) |
-| E11 | Dedup effect on val mAP (re-train on deduplicated set) | Q14 follow-up | 1.0 | planned |
+| E11 | Dedup effect on val mAP (re-train on deduplicated set) | Q14 follow-up | 1.0 | committed |
 | E12 | Background intervention at training time (Q0) | Q0 | 1.0 | planned |
 
 ---
@@ -88,6 +88,35 @@ Each entry conforms to the template in `CLAUDE.md` / `docs/assessment.md`.
 - **Artifacts:**
   - Module: `src/jaguar_reid/bg_replace.py` (`BgMode` enum + `load_rgb(path, mode)`).
   - No W&B run.
+
+---
+
+### E11: Does deduplication of the training set improve re-ID performance? (Q14 follow-up)
+
+- **Research question / hypothesis:** E3 showed 209 exact-pHash duplicate pairs (Hamming = 0) in the training set, all within-identity, no cross-identity. Camera-trap burst frames are common. *If these duplicates are noise, removing them should help training; if they are informative (multiple views of the same jaguar in quick succession), removing them should hurt.*
+- **Intervention:** For every cluster of exact-pHash-matching filenames, keep the lexicographically-first filename, drop the rest. Train the Q5/Q12-winning recipe (DINOv2-ViT-L/14 + 256-d projection + ArcFace) on (a) the full 1416-image train split and (b) the deduplicated 1321-image train split. Same val_v1 val set. Same hyperparameters, same seed, same schedule.
+- **Held fixed:** backbone, loss, projection arch, lr, weight decay, batch size, dropout, 30 epochs patience 10, ReduceLROnPlateau on val mAP, identity-disjoint val_v1 split (only train side changes).
+- **Evaluation protocol:** Identity-balanced mAP on val_v1.
+- **Results:**
+
+  | Train set | Images | Val mAP (best) | Δ vs full |
+  | --------- | ------ | -------------- | --------- |
+  | Full train (E6-arcface reference) | 1416 | **0.6822** | — |
+  | Exact-pHash deduplicated | 1321 (−95 = −6.7%) | **0.6482** | **−0.0340** |
+
+- **Interpretation:**
+  - **Deduplication hurts.** Removing 95 exact-pHash duplicates costs 0.034 absolute val mAP — more than the spread of the Q12 loss comparison (0.017).
+  - The "duplicates" found by perceptual hashing are mostly **burst-frame near-duplicates from the same camera trap event**, not photometric copies. They capture small pose / lighting / scale variations that help the projection head learn invariances. Stripping them reduces both per-identity sample count and the diversity signal ArcFace needs.
+  - **Implication for Q13 (data curation).** A naive "drop exact duplicates" strategy is counter-productive for this dataset. A more sophisticated curation — e.g., select temporally spread samples per identity or drop only the HEAD-class duplicates to reduce class imbalance without hurting rare-class coverage — would likely dominate this simple rule. Q13 follow-up.
+  - **Implication for E3.** The near-duplicate count reported there should be interpreted as an informativeness signal, not a data-hygiene problem.
+  - **Failure mode**: the dedup split has 95 fewer samples (6.7%); controlled for sample count, an oversampled-to-1416 dedup training might behave differently. A proper Q13 study with sample-count-matched comparisons would resolve this.
+- **Credit:** 1.0 Valid — clear question, controlled intervention (only one factor: with/without dedup), appropriate evaluation (same-val mAP), concrete interpretation distinguishing "noise" vs "informative redundancy", and a specific follow-up protocol. A negative result with a lesson.
+- **Artifacts:**
+  - Code: `src/jaguar_reid/experiments/exp_E11_dedup_effect.py`.
+  - Data: `logs/exp_E11_dedup.json`, `splits/val_v1_dedup.json` (deduped split for reproducibility).
+  - Checkpoint: `checkpoints/E11-dedup-arcface.pth`.
+  - Parent (full-train): `checkpoints/E6-arcface.pth`.
+  - W&B: `exp_E11_dedup` group on `zyna/jaguar-reid-jreiml`, run `E11-dedup-arcface`.
 
 ---
 

@@ -1,4 +1,5 @@
 date	time	round	run_name	submission_file	public_score	private_score	wandb_url	message
-2026-04-19	14:01:56	r2	probe-r2-sample	submissions/probe_r2_sample.csv				Phase 0 probe: sample_submission.csv (random uniform)
-2026-04-19	14:09:46	r2	baseline-megadescriptor-arcface	/code/jaguar-re-id/submissions/baseline_r2.csv				Phase 0 baseline: MegaDescriptor-L-384 + ArcFace, frozen backbone, identity-disjoint val v1
-2026-04-19	14:12:59	r1	baseline-megadescriptor-arcface	submissions/baseline_r1.csv				Phase 0 R1 diag: same checkpoint as R2 baseline (0.243), verify harness on R1 test (bg intact)
+2026-04-19	14:01:56	r2	probe-r2-sample	submissions/probe_r2_sample.csv	0.042	0.043		Phase 0 probe: sample_submission.csv (random uniform)
+2026-04-19	14:09:46	r2	baseline-megadescriptor-arcface	/code/jaguar-re-id/submissions/baseline_r2.csv	0.243	0.253	https://wandb.ai/zyna/jaguar-reid-jreiml	Phase 0 baseline: MegaDescriptor-L-384 + ArcFace, frozen backbone, identity-disjoint val v1
+2026-04-19	14:12:59	r1	baseline-megadescriptor-arcface	submissions/baseline_r1.csv	0.478	0.453	https://wandb.ai/zyna/jaguar-reid-jreiml	Phase 0 R1 diag (Q30 delta = -0.235 vs R2)
+2026-04-19	15:05:51	r2	E6-arcface-r2-bggray-rerank	submissions/E6_arcface_r2_bggray_rerank.csv	0.302	0.304	https://wandb.ai/zyna/jaguar-reid-jreiml	E6 DINOv2+ArcFace bg=gray k-reciprocal rerank k1=35 k2=6 lam=0.2

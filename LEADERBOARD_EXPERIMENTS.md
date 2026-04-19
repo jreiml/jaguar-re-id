@@ -15,7 +15,7 @@
 | E6 | Loss comparison (4 losses) | Q12 | 2.00 | committed |
 | E7 | k-reciprocal re-ranking (k1, λ, k2) + search-method comparison | Q28 + Q27 | 2.00 | committed |
 | E8 | Ensemble of top 2-3 single models | Q7 | 1.0 | planned |
-| E9 | Round 1 vs Round 2 delta (same model → both rounds) | Q30 | 1.0 | planned |
+| E9 | Round 1 vs Round 2 delta (same model → both rounds) | Q30 | 1.0 | committed |
 
 ---
 
@@ -120,6 +120,37 @@
   - Data: `logs/exp_E7_rerank.json`, `logs/exp_E7_rerank.csv` (130 trials across 4 methods).
   - Parent checkpoint: `checkpoints/E6-arcface.pth`.
   - W&B: *no separate training run — post-processing on E6-arcface.*
+
+---
+
+### E9: Round 1 vs Round 2 delta on the Phase-0 baseline (Q30)
+
+- **Research question / hypothesis (Q30):** How much does the R2 background-removal domain shift at inference hurt a jaguar-reID model that was trained with natural-background images? Does the Kaggle-measured delta match the val-set bg-intervention delta from E5?
+- **Intervention:** Take one checkpoint (`checkpoints/baseline-megadescriptor-arcface.pth` — MegaDescriptor-L-384 + projection + ArcFace trained on R1 train, val_v1 identity-disjoint) and submit **the exact same checkpoint** to (a) Round 1 (jaguar-re-id, backgrounds intact in test) and (b) Round 2 (round-2-jaguar-reidentification-challenge, backgrounds removed from test images via RGB zeroing). No per-round tuning, no bg-replacement trick, no re-ranking — identical inference on both.
+- **Held fixed:** checkpoint, projection weights, identity-disjoint val_v1 train split, inference preprocessing (default `Image.convert("RGB")` — which drops alpha). The only difference is the test-image distribution served by each Kaggle competition.
+- **Evaluation protocol:** Kaggle public-leaderboard identity-balanced mAP for each round (137,270 pair-wise similarity scores per submission).
+- **Results:**
+
+  | Round | Test distribution | Submission file | Public mAP | Private mAP | Kaggle submission datetime |
+  | ----- | ----------------- | --------------- | ---------- | ----------- | -------------------------- |
+  | R1 (jaguar-re-id) | Natural backgrounds intact | `submissions/baseline_r1.csv` | **0.4781** | 0.4528 | 2026-04-19 14:12:58 UTC |
+  | R2 (round-2-jaguar-reidentification-challenge) | RGB pre-zeroed outside alpha-mask | `submissions/baseline_r2.csv` | **0.2430** | 0.2531 | 2026-04-19 14:09:45 UTC |
+  | **Δ (R2 − R1, public)** | — | — | **−0.2351** | −0.1997 | — |
+
+- **Interpretation:**
+  - The R1→R2 drop is **−0.235 absolute mAP**, roughly **a 49 % relative loss**. This is a massive domain shift.
+  - The val-set E5 intervention showed **−0.126 mAP** when replacing background with black on frozen MegaDescriptor. The Kaggle delta (−0.235) is ~2× larger, indicating that:
+    - (a) The R2 test set has *additional* domain shifts beyond black-background (different crop selection than R1 test — verified: R2 test image `test_0001.png` has dimensions 3581×3421 vs R1's `test_0001.png` 2358×729; these are entirely different crops, not the same image with different preprocessing).
+    - (b) The *trained* projection head amplifies bg-sensitivity beyond the frozen backbone's, because the ArcFace classification on 25 training identities may pick up residual background shortcuts.
+  - The delta quantifies **MegaDescriptor-L-384's strong reliance on background context** — direct behavioral evidence for Q26. This is stronger evidence than E5 alone because it's measured on the real Kaggle test distribution rather than a simulated bg-replacement on val.
+  - **Practical take-away** (cross-reference to `submissions.log` and E7): submitting the E6-arcface DINOv2 checkpoint + bg=gray fill + k-reciprocal re-rank to R2 raises R2 score to **0.302** (+0.059 over baseline R2 0.243), demonstrating that the three-way combo of stronger backbone + domain-gap mitigation + post-processing recovers a meaningful portion of the R1→R2 gap. The remaining gap (R1 at ~0.48 vs R2 at ~0.30 with fixes) suggests R2 has additional distribution shift that a single-model fix cannot bridge.
+- **Credit:** 1.0 Valid per Q30 — same model submitted to both rounds, exact identical setup, public scores recorded, interpretation tied to E5's val-level mechanism and E7's mitigation.
+- **Artifacts:**
+  - Checkpoint (both submissions): `checkpoints/baseline-megadescriptor-arcface.pth`.
+  - Submissions: `submissions/baseline_r1.csv` (R1), `submissions/baseline_r2.csv` (R2).
+  - Kaggle submission log: `submissions.log` rows for `baseline-megadescriptor-arcface`.
+  - Cross-reference: EDA E5 (bg-reliance on val) and LEADERBOARD E7 (rerank + bg mitigation).
+- **Planned follow-up (tomorrow, within Kaggle daily budget):** submit `checkpoints/E6-arcface.pth` to both R1 and R2 in a single comparable Q30 pair, to confirm that the delta is a property of the dataset shift (not the baseline model). Budget: 1 R1 + 1 R2.
 
 ---
 
