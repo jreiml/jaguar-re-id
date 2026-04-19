@@ -1,0 +1,1 @@
+"""Jaguar re-identification pipeline."""

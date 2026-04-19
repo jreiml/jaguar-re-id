@@ -8,3 +8,8 @@ wandb/
 *.pyc
 __pycache__/
 .pytest_cache/
+*.egg-info/
+build/
+dist/
+.claude/
+
