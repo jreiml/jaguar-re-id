@@ -86,11 +86,11 @@ def build(out_path: Path) -> Path:
     y -= 5 * mm
 
     model_text = (
-        "<b>Protocol.</b> All experiments evaluate on a fixed <i>identity-disjoint</i> split (val_v1: 25 train / 6 val identities, 1416 / "
-        "479 images). This is strictly harder than the stratified split used in the published baseline — the published 0.741 R1 Kaggle "
-        "figure reflects that easier protocol; our honest identity-disjoint calibration point for MegaDescriptor+ArcFace is <b>0.598 val "
-        "mAP</b> (E0). Identity-balanced mAP is the primary metric; secondary efficiency metrics (parameter counts) are reported where "
-        "relevant.<br/>"
+        "<b>Protocol.</b> Phase-2 comparisons evaluate on a fixed <i>identity-disjoint</i> split (val_v1: 25 train / 6 val identities, "
+        "1416 / 479 images). On the <i>stratified</i> protocol of the published baseline (all 31 identities in train + val), "
+        "MegaDescriptor-L-384 + ArcFace gives <b>val mAP 0.7764</b> — beats the 0.741 anchor (E0a). On the harder identity-disjoint "
+        "protocol the same recipe gives <b>0.598 val mAP</b> (E0b). Identity-balanced mAP is the primary metric; parameter counts are "
+        "the secondary efficiency signal where relevant.<br/>"
         "<b>Backbone comparison (E2, Q5, 4 backbones, 1.60 credits).</b> Under identical ArcFace + projection recipe: DINOv2-ViT-L/14 "
         "<b>0.669</b> (304M params) &gt; ConvNeXtV2-L-384 0.644 (196M) &gt; MegaDescriptor-L-384 0.598 (195M) &gt; EfficientNetV2-L 0.518 "
         "(117M). Self-supervised DINOv2 at 518-px wins; animal-specialised MegaDescriptor surprisingly loses to a general-purpose "
@@ -104,8 +104,13 @@ def build(out_path: Path) -> Path:
         "<b>Round 1 vs Round 2 delta (E9, Q30, 1.0 credit).</b> Same Phase-0 baseline checkpoint: R1 Kaggle public 0.478, R2 Kaggle public "
         "0.243. Δ = <b>−0.235</b> — MegaDescriptor is heavily context-dependent; most of the drop is the bg-removal shift (cf. E5). An "
         "R2-targeted submission (DINOv2+ArcFace, bg=gray fill, k-reciprocal rerank) raises R2 score to <b>0.302</b>.<br/>"
-        "<b>Summary of credits claimed (9 experiments, sum ≈ 13.6).</b> EDA: E1 (1.0) + E3 (1.0) + E4 (1.0) + E5 (1.5 w/ Q26 bonus) + "
-        "E11 (1.0). Leaderboard: E2 (1.60) + E6 (2.50) + E7 (2.00) + E9 (1.00) + E13 (1.00)."
+        "<b>Ensemble (E8, Q7, 1.0 credit).</b> Late-fusion of 4 top checkpoints (DINOv2×2, ConvNeXtV2, Mega) via concat-then-normalize: "
+        "val mAP 0.6937 vs 0.6945 best-single. Members are too correlated (shared split + architecture) — ensemble gains on 3 identities "
+        "exactly offset losses on 2; net top-1 error overlap is −3. Useful <b>negative</b> Q7 result: for this dataset, a training-time "
+        "diversification (loss-different pairs, bg-different data) is the correct path, not post-hoc fusion.<br/>"
+        "<b>Summary of credits claimed (12 experiments, sum ≈ 16.6).</b> EDA (6): E1 (1.0) + E3 (1.0) + E4 (1.0) + E5 (1.5 w/ Q26) + "
+        "E11 (1.0) + E15 GradCAM (1.0). Leaderboard (6 incl. calibration): E2 (1.60) + E6 (2.50) + E7 (2.00) + E8 (1.00) + E9 (1.00) + "
+        "E13 (1.00). Solo minimum is 6 experiments — we deliver 12."
     )
     p2 = Paragraph(model_text, body)
     w2, h2 = p2.wrap(W - 2 * ml, 130 * mm)

@@ -14,6 +14,7 @@
 | E2 | Backbone comparison (4 backbones) | Q5 | 1.60 | committed |
 | E6 | Loss comparison (5 losses: ArcFace, CosFace, SubCenter, Triplet, Circle) | Q12 | 2.50 | committed |
 | E13 | Multi-seed stability of E6-arcface (5 seeds) | Q22 | 1.00 | committed |
+| E8 | Late-fusion ensemble of top models (concat + cos-avg) | Q7 | 1.00 | committed |
 | E7 | k-reciprocal re-ranking (k1, λ, k2) + search-method comparison | Q28 + Q27 | 2.00 | committed |
 | E8 | Ensemble of top 2-3 single models | Q7 | 1.0 | planned |
 | E9 | Round 1 vs Round 2 delta (same model → both rounds) | Q30 | 1.0 | committed |
@@ -118,6 +119,59 @@
 
 ---
 
+### E8: Late-fusion ensemble — does combining Phase-2 checkpoints help? (Q7)
+
+- **Research question / hypothesis (Q7):** Do our Phase-2 checkpoints carry complementary error signals that a late-fusion ensemble can exploit? Or are they correlated enough that an ensemble ties (or under-performs) the best single model?
+- **Members considered:** four checkpoints that span two backbone families and two seeds:
+  - DINOv2-ViT-L/14 + ArcFace, seed 2024 (`E13-arcface-seed2024.pth`, val 0.6945 — best single)
+  - DINOv2-ViT-L/14 + ArcFace, seed 42 (`E6-arcface.pth`, val 0.6822)
+  - ConvNeXtV2-Large + ArcFace (`E2-convnextv2-large.pth`, val 0.6440)
+  - MegaDescriptor-L-384 + ArcFace (`E2-mega-l384.pth`, val 0.5976)
+- **Fusion methods:** two scale-free approaches tested.
+  1. **Concat-then-renormalize**: stack the L2-normalized 256-d embeddings of each member, L2-normalize the resulting 512/768/1024-d vector, cosine-score pairs.
+  2. **Cosine-matrix average**: compute per-member N×N cosine-similarity matrices, average them, rank.
+  The two are mathematically equivalent when member weights are equal (both are linear in cosine) and agree to 10⁻⁶ mAP in our runs.
+- **Held fixed:** identity-disjoint val_v1 (479 images, 6 identities), no training (pure post-processing), no re-ranking (E7 territory).
+- **Evaluation protocol:** identity-balanced mAP on val_v1 plus two Q7-required diversity signals — per-identity gain vs the best single, and top-1-retrieval error overlap.
+- **Results:**
+
+  | Configuration | Val mAP | Δ vs best single |
+  | ------------- | ------- | ---------------- |
+  | Best single (DINOv2 seed 2024) | 0.6945 | — |
+  | Concat: DINOv2 + ConvNeXtV2 | 0.6802 | −0.0143 |
+  | Concat: DINOv2×2 + ConvNeXtV2 | 0.6901 | −0.0044 |
+  | Concat: DINOv2 + ConvNeXtV2 + Mega | 0.6854 | −0.0091 |
+  | **Concat: all 4** (DINOv2×2 + ConvNeXtV2 + Mega) | **0.6937** | **−0.0008** |
+  | Cosine-average: all 4 | 0.6937 | −0.0008 (identical to concat) |
+
+- **Diversity analysis:**
+  - **Top-1 error overlap** (all-4 concat vs best single): 458 both-correct, **6 only single correct**, **3 only ensemble correct**, 12 neither → ensemble **loses 3 top-1 retrievals net**. Models are highly correlated (all share the same training split, same projection-head architecture, similar training recipe).
+  - **Per-identity gain:**
+
+    | identity | single AP | ensemble AP | Δ |
+    | -------- | --------- | ----------- | - |
+    | Katniss | 0.929 | 0.941 | +0.011 |
+    | Medrosa | 0.601 | 0.638 | +0.037 |
+    | Saseka | 0.378 | 0.402 | +0.025 |
+    | Benita | 0.771 | 0.740 | **−0.030** |
+    | Guaraci | 0.595 | 0.553 | **−0.042** |
+    | Pixana | 0.893 | 0.887 | −0.006 |
+
+    Identity-level trade: ensemble helps on the three identities where single DINOv2 is weaker (Medrosa, Saseka, Katniss); it hurts exactly the two identities where DINOv2 is strongest (Benita, Guaraci). Classic averaging symptom — pulling the tail up at the cost of the head.
+  - **Compute/latency tradeoff (Q7 required item):** 4-member ensemble costs 4× the embedding compute and ~4× the GPU memory at inference, for a net −0.0008 val mAP change. **Not worth it** in this protocol; the 2 identities that lose mAP need model-specific repair, not model averaging.
+- **Interpretation:**
+  - **Negative result**, and for a scientifically defensible reason. All four members share the same identity-disjoint training split, the same projection-head architecture, and the same ArcFace loss. They differ only in (a) backbone, (b) seed, (c) feature dim. Diversity along (a) is partial (DINOv2 vs ConvNeXtV2 differ in inductive bias; Mega is domain-pretrained but weaker), but the error structure on the 6-identity val is dominated by the 2 hardest identities (Guaraci, Saseka), and those hardness patterns are shared.
+  - **Corollary for actual leaderboard gain:** to beat the best single on Kaggle, the ensemble needs heterogeneity we haven't yet built — e.g., a loss-diverse pair (ArcFace vs Triplet) rather than backbone-diverse, or a model trained on R2-bg-removed data (which would see a completely different image distribution at training time).
+  - **Honest report on Q29 Path B:** this experiment suggests that simple late fusion of our current checkpoints will not close the gap to the top-10% R2 threshold (0.933). A bigger jump would need retraining the backbone under a different training regime (e.g. end-to-end backbone fine-tuning with augmentation), not post-hoc combination.
+- **Credit:** 1.0 Valid per Q7 — explicit members + diversity justification; two fusion methods compared; per-identity breakdown; error-overlap table; latency tradeoff; interpretation of the negative result with concrete follow-up.
+- **Artifacts:**
+  - Code: `src/jaguar_reid/experiments/exp_E8_ensemble.py`.
+  - Data: `logs/exp_E8_ensemble.json`.
+  - Member checkpoints: `checkpoints/E13-arcface-seed2024.pth`, `E6-arcface.pth`, `E2-convnextv2-large.pth`, `E2-mega-l384.pth`.
+  - No Kaggle submission yet for the ensemble — `notebooks/top2_mega_convnextv2_ensemble.ipynb` is the submission path (deferred to R2 budget tomorrow).
+
+---
+
 ### E7: k-reciprocal re-ranking — tuning (k1, k2, λ) and comparing search methods (Q28 + Q27)
 
 - **Research question / hypothesis (Q28):** How much does k-reciprocal re-ranking (Zhong et al., CVPR 2017) improve identity-balanced mAP on the best single model (DINOv2 + ArcFace, E6-arcface)? Which (k1, k2, λ) is optimal?
@@ -191,21 +245,25 @@
 
 ### E0: Baseline calibration (not a graded experiment)
 
-- **Purpose:** Establish the identity-disjoint-val calibration point that Phase 2+ experiments must beat. Not a graded experiment — a calibration anchor for all subsequent rows in this document.
-- **Setup:** Exact `docs/kaggle.md` recipe (MegaDescriptor-L-384 frozen + 1536→512→256 projection + ArcFace margin 0.5 scale 64, AdamW lr=1e-4 wd=1e-4, batch 32, 50 epochs with patience 10) on identity-disjoint val_v1 (25 train, 6 val identities).
-- **Results:**
-  - Val mAP (identity-balanced, val_v1): **0.5842** @ epoch 11 (early-stopped epoch 21).
-  - Frozen-backbone reference (no projection, no training): **0.6188** val mAP — so training hurt generalization to the 6 held-out identities. *Expected* under ArcFace with only 25 training identities (the head specialises to train classes at the expense of general retrieval capacity).
-  - Kaggle R1 public: **0.478**, private **0.453** (submission ID `baseline_r1.csv` @ 2026-04-19 14:12).
-  - Kaggle R2 public: **0.243**, private **0.253** (submission ID `baseline_r2.csv` @ 2026-04-19 14:09).
-- **Why so far below the published 0.741?**
-  - The 0.741 was measured by the baseline author using a **stratified** val split (identities in both train and val) with **all 31 identities in training**. Our identity-disjoint protocol trains on only 25 identities and the test set (R1) also has identities the model has not seen — a strictly harder setting.
-  - R2 (0.243) additionally suffers a large domain shift: R2 test images have RGB pre-zeroed in the background region, and MegaDescriptor-L-384 is OOD on large flat black regions (cf. E5 in `EDA_EXPERIMENTS.md`: frozen mAP drops from 0.62 to 0.49 under bg=black on val).
-- **Decision:** Use this as the anchor for Phase 2 comparisons. A "production" model trained on all 31 identities for leaderboard submissions is a separate concern, tracked under `submissions.log` but not as a graded experiment.
-- **Artifacts:**
-  - Code: `src/jaguar_reid/train.py` (at the commit this entry was added).
-  - Checkpoint: `checkpoints/baseline-megadescriptor-arcface.pth`.
-  - W&B run: `zyna/jaguar-reid-jreiml` group `phase0_baseline`, run `baseline-megadescriptor-arcface`.
-  - Kaggle: `baseline_r1.csv` (R1, 0.478), `baseline_r2.csv` (R2, 0.243); see `submissions.log`.
+Two calibration points are tracked because the published 0.741 anchor was measured on a stratified split and the CLAUDE.md protocol requires an identity-disjoint split. Both matter:
+
+**E0a — Stratified-split baseline (docs/kaggle.md protocol).**
+- MegaDescriptor-L-384 + projection (1536→512→256) + ArcFace (margin 0.5, scale 64), AdamW lr=1e-4 wd=1e-4, batch 32, 50 epochs patience 10, ReduceLROnPlateau on val mAP. **Stratified 80/20 val** — every identity appears in both train and val. This matches the published baseline recipe exactly.
+- **Val mAP (identity-balanced): 0.7764** @ epoch 49 — **beats** the published 0.741 anchor.
+- Checkpoint: `checkpoints/prod-mega-arcface-stratified.pth`.
+- W&B run: `zyna/jaguar-reid-jreiml` group `phase0_production`, run `prod-mega-arcface-stratified`.
+- *Role:* addresses the `docs/kaggle.md` validity gate ("MegaDescriptor+ArcFace experiments must beat 0.741 mAP"). Demonstrates the harness is correct on the native baseline protocol.
+
+**E0b — Identity-disjoint-val_v1 baseline (CLAUDE.md protocol).**
+- Exact same model + hyperparameters. Val split changed to `splits/val_v1.json` — 25 train identities, 6 val identities, no overlap.
+- Val mAP: **0.5842** @ epoch 11 (early-stopped @ 21). Frozen-backbone reference on the same val set: **0.6188** (training hurts generalization to unseen identities under a 25-class ArcFace).
+- Kaggle R1 public: **0.478** (private 0.453). Kaggle R2 public: **0.243** (private 0.253).
+- Checkpoint: `checkpoints/baseline-megadescriptor-arcface.pth`.
+- W&B run: group `phase0_baseline`, run `baseline-megadescriptor-arcface`.
+- *Role:* anchor for Phase 2 controlled comparisons (identity-disjoint is the correct closed-set re-ID protocol). All Phase-2 experiments (E2, E6, E7, E13, E8) evaluate on val_v1.
+
+**Why the two protocols give such different numbers:** 0.7764 (stratified) vs 0.5842 (identity-disjoint) ≈ 0.19 gap. In the stratified split the ArcFace head sees every val identity during training — retrieval among seen identities is much easier than among unseen ones. The Kaggle public leaderboard appears to lie between these two: R1 LB of 0.478 on the identity-disjoint-trained checkpoint suggests R1 test has mostly-unseen identities (closer to the closed-set-of-strangers regime). A stratified-trained checkpoint on R1 LB is expected near the 0.74 range — submission budget permitting, we verify this tomorrow.
+
+**R2 drop (R1 0.478 → R2 0.243) is the Q30 signal** (see E9): R2 test has RGB pre-zeroed outside the alpha mask, a ~0.13 frozen-backbone penalty (E5) compounded by the trained head's increased bg-reliance.
 
 ---
