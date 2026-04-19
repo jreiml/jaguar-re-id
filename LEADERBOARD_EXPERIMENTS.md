@@ -15,6 +15,7 @@
 | E6 | Loss comparison (5 losses: ArcFace, CosFace, SubCenter, Triplet, Circle) | Q12 | 2.50 | committed |
 | E13 | Multi-seed stability of E6-arcface (5 seeds) | Q22 | 1.00 | committed |
 | E8 | Late-fusion ensemble of top models (concat + cos-avg) | Q7 | 1.00 | committed |
+| E18 | Smaller-than-MegaDescriptor backbones (DINOv2-B, ConvNeXtV2-B) | Q18 | 1.00 | committed |
 | E7 | k-reciprocal re-ranking (k1, λ, k2) + search-method comparison | Q28 + Q27 | 2.00 | committed |
 | E8 | Ensemble of top 2-3 single models | Q7 | 1.0 | planned |
 | E9 | Round 1 vs Round 2 delta (same model → both rounds) | Q30 | 1.0 | committed |
@@ -116,6 +117,32 @@
   - Data: `logs/exp_E13_multiseed.json`.
   - Checkpoints: `checkpoints/E13-arcface-seed{42,7,1337,2024,9001}.pth` (seed 42 aliased from `E6-arcface.pth`).
   - W&B group: `exp_E13_multiseed` at https://wandb.ai/zyna/jaguar-reid-jreiml.
+
+---
+
+### E18: Does a smaller model beat MegaDescriptor? (Q18)
+
+- **Research question / hypothesis (Q18):** Is MegaDescriptor-L-384 (195M parameters, animal-re-ID specialised) Pareto-optimal on this task at its scale, or does a lighter backbone match/beat it? Q18 asks for a model with *fewer parameters than MegaDescriptor* that achieves *better val mAP*.
+- **Intervention:** Swap MegaDescriptor's backbone for two ~90M-parameter alternatives. All other Phase-2 controls identical: identity-disjoint val_v1, 1536/1280/… → 512 → 256 projection, ArcFace margin 0.5 scale 64, AdamW lr=1e-4 wd=1e-4, batch 32, 30 epochs patience 10, seed 42.
+- **Results:**
+
+  | Backbone | Backbone params | Feature dim | Input | Val mAP (best) | Δ vs Mega-L |
+  | -------- | --------------- | ----------- | ----- | -------------- | ----------- |
+  | **MegaDescriptor-L-384** (reference) | 195.2M | 1536 | 384 | 0.5976 | — |
+  | DINOv2-ViT-B/14-518 | 86.6M (2.25× smaller) | 768 | 518 | **0.6342** | **+0.037** |
+  | ConvNeXtV2-Base-384 | 87.7M (2.22× smaller) | 1024 | 384 | **0.6374** | **+0.040** |
+
+- **Interpretation:**
+  - **Q18 satisfied with margin.** Both ~90M backbones beat MegaDescriptor-L-384 at its native protocol while using 2.2× fewer parameters. ConvNeXtV2-Base wins by a hair over DINOv2-B at comparable param counts.
+  - **Reads across to E2 (the larger-backbone comparison):** the ordering ConvNeXtV2 > DINOv2 > Mega > EfficientNetV2 held at both "-B" and "-L" sizes for the CNNs, while the ViT (DINOv2) *widens* its lead over Mega at -L scale (0.669 vs 0.598 at L; 0.634 vs 0.598 at B). ConvNeXtV2 improves more slowly with size (0.637 at B → 0.644 at L).
+  - **Mechanism.** MegaDescriptor's domain-specific (animal-re-ID) pre-training is surprisingly outclassed by general-purpose ImageNet / self-supervised features when controlled for the same head + split. One hypothesis: MegaDescriptor was trained as a 384-input CNN on a cross-species animal dataset whose distribution shift from jaguars is non-trivial; DINOv2 and ConvNeXtV2 both train on ImageNet-22k which is closer to the photometric distribution of camera-trap jaguar crops.
+  - **Deployment implication.** For on-device / edge camera-trap inference, DINOv2-B or ConvNeXtV2-B at ~90M are the clear sweet spot (Pareto-dominant over Mega-L on this dataset). At full-quality on-server inference, the 304M DINOv2-L wins outright (E2).
+- **Credit:** 1.0 Valid per Q18 — controlled comparison, explicit parameter count, mAP delta, interpretation connecting to E2's larger-scale trend.
+- **Artifacts:**
+  - Code: `src/jaguar_reid/experiments/exp_E18_efficient.py`.
+  - Checkpoints: `checkpoints/E18-dinov2-vitb14.pth`, `E18-convnextv2-base.pth`.
+  - Logs: `logs/e18_dinov2b.log`, `logs/e18_convnextv2b.log`.
+  - W&B group: `exp_E18_efficient`, runs `E18-dinov2-vitb14`, `E18-convnextv2-base`.
 
 ---
 

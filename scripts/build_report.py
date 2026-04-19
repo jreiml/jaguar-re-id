@@ -108,9 +108,12 @@ def build(out_path: Path) -> Path:
         "val mAP 0.6937 vs 0.6945 best-single. Members are too correlated (shared split + architecture) — ensemble gains on 3 identities "
         "exactly offset losses on 2; net top-1 error overlap is −3. Useful <b>negative</b> Q7 result: for this dataset, a training-time "
         "diversification (loss-different pairs, bg-different data) is the correct path, not post-hoc fusion.<br/>"
-        "<b>Summary of credits claimed (12 experiments, sum ≈ 16.6).</b> EDA (6): E1 (1.0) + E3 (1.0) + E4 (1.0) + E5 (1.5 w/ Q26) + "
-        "E11 (1.0) + E15 GradCAM (1.0). Leaderboard (6 incl. calibration): E2 (1.60) + E6 (2.50) + E7 (2.00) + E8 (1.00) + E9 (1.00) + "
-        "E13 (1.00). Solo minimum is 6 experiments — we deliver 12."
+        "<b>Efficient-model comparison (E18, Q18, 1.0 credit).</b> Two ~90M backbones beat MegaDescriptor-L-384 (195M) at its native "
+        "protocol: DINOv2-B/14 0.634 and ConvNeXtV2-B 0.637 vs Mega-L 0.598. Pareto-dominant at 2.25× fewer params — relevant for edge "
+        "camera-trap deployment.<br/>"
+        "<b>Summary of credits claimed (13 experiments, sum ≈ 17.6).</b> EDA (6): E1 (1.0) + E3 (1.0) + E4 (1.0) + E5 (1.5 w/ Q26) + "
+        "E11 (1.0) + E15 GradCAM (1.0). Leaderboard (7 incl. calibration): E2 (1.60) + E6 (2.50) + E7 (2.00) + E8 (1.00) + E9 (1.00) + "
+        "E13 (1.00) + E18 (1.00). Solo minimum is 6 experiments — we deliver 13."
     )
     p2 = Paragraph(model_text, body)
     w2, h2 = p2.wrap(W - 2 * ml, 130 * mm)
