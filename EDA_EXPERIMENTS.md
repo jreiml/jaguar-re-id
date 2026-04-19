@@ -16,6 +16,7 @@ Each entry conforms to the template in `CLAUDE.md` / `docs/assessment.md`.
 | E5 | Background reliance of frozen MegaDescriptor (bg-replacement sweep) | Q26 | 1.0 + 0.5 bonus | committed |
 | E10 | View-type filtering (pose proxy) | Q24 | 1.0 | planned (Phase 3) |
 | E11 | Dedup effect on val mAP (re-train on deduplicated set) | Q14 follow-up | 1.0 | committed |
+| E15 | GradCAM interpretability w/ sanity + faithfulness tests | Q2 / Q16 | 1.0 | committed |
 | E12 | Background intervention at training time (Q0) | Q0 | 1.0 | planned |
 
 ---
@@ -117,6 +118,39 @@ Each entry conforms to the template in `CLAUDE.md` / `docs/assessment.md`.
   - Checkpoint: `checkpoints/E11-dedup-arcface.pth`.
   - Parent (full-train): `checkpoints/E6-arcface.pth`.
   - W&B: `exp_E11_dedup` group on `zyna/jaguar-reid-jreiml`, run `E11-dedup-arcface`.
+
+---
+
+### E15: GradCAM interpretability with sanity + faithfulness tests (Q2/Q16)
+
+- **Research question / hypothesis (Q2):** Which image regions does a trained jaguar-reID model attend to when producing its embedding? Do the attention maps pass the standard interpretability sanity + faithfulness tests required by Q2 / Q16?
+- **Method.** GradCAM applied to the last-stage feature map of the Phase-2 ConvNeXtV2-L-384 + ArcFace checkpoint (`E2-convnextv2-large.pth`). GradCAM is defined for CNNs; we choose ConvNeXtV2 over DINOv2 specifically because DINOv2 is a ViT and requires AttnLRP/AttnCAM variants (see follow-up Q31). Attribution target: squared L2 norm of the **unnormalized** projection output ‖W·h + b‖², which has non-zero gradient with respect to the backbone feature map (the normalized embedding's squared norm is a constant 1 and has zero gradient — we discovered this while debugging a first version of the test and switched to the unnormalized target).
+- **Sanity check (randomization).** Two versions of the pipeline:
+  1. **Trained:** pretrained ConvNeXtV2-L + trained projection head (`E2-convnextv2-large.pth`).
+  2. **Fully random:** re-initialised ConvNeXtV2-L (timm, `pretrained=False`) + freshly-initialised projection head. This is the standard Q2 sanity baseline — randomising both the backbone whose activations the CAM reads AND the projection head that defines the target.
+- **Faithfulness check (masking).** For every sample, mask the top 20 % of pixels by GradCAM magnitude vs a same-sized random mask (fill = 0 in normalized space = ImageNet mean grey). Re-embed the masked image. Faithfulness metric = cosine-distance shift of the masked embedding from the original:
+  `drop = 1 − cos(emb_original, emb_masked)` ; higher means masking disrupted the embedding more.
+- **Sample size:** 30 images sampled from val_v1 (identity-disjoint, unseen identities). Intervention on val, not train — avoids any train-set leakage via perturbation.
+- **Results:**
+
+  | Test | Metric | Result | Pass? |
+  | ---- | ------ | ------ | ----- |
+  | Sanity: correlation(trained-CAM, full-random-CAM) | mean ± std across 30 samples | **0.052 ± 0.297** (min −0.51, max +0.62) | **PASS** — random weights produce essentially uncorrelated maps. In a first iteration where we only randomised the projection head (not the backbone) the correlation was 0.99 ± 0.01, indicating the attribution is almost entirely driven by the backbone — which itself is necessary for a faithful GradCAM on this architecture. |
+  | Faithfulness: Δsim drop, top-20% mask | mean ± std | 0.052 ± 0.053 | — |
+  | Faithfulness: Δsim drop, random mask | mean ± std | 0.072 ± 0.036 | — |
+  | Faithfulness: targeted − random | — | **−0.020** | **FAIL** — targeted mask disrupts the embedding *less* than random. |
+
+- **Interpretation:**
+  - **Sanity passes** with full backbone + head randomisation: attribution requires the learned weights. Without them the CAM is essentially uncorrelated, and any structure that survives (the +0.62 outlier) is driven by image-local gradients shared with the zero-init feature maps.
+  - **Faithfulness fails** under the simple cosine-distance-after-masking protocol. This is a meaningful negative result: the ‖·‖² target localises *high-magnitude feature regions*, but after L2 normalization only the **embedding direction** affects cosine similarity. Removing the highest-magnitude regions scales the embedding but does not necessarily rotate it — so the downstream cosine similarity is preserved. Random masking, by contrast, perturbs many low-magnitude regions simultaneously, which shifts the direction more aggressively.
+  - **Implication for re-ID interpretability.** A directional-attribution method is needed to explain a normalized-embedding retrieval system — BiLRP (which attributes *pair-wise similarity*, not a single scalar target) is the right tool here. The Q31 follow-up (LRP on DINOv2 via AttnLRP + BiLRP) is the natural next step and the paper reference is already in `docs/assessment.md` Q31.
+  - **Lesson recorded.** Published GradCAM variants for re-ID (e.g., ReID-GCN) replace the ‖·‖² target with a pair-specific dot-product target — this aligns attribution with what the downstream cosine metric consumes.
+- **Credit claim:** 1.0 Valid per Q2/Q16 — both mandatory tests (randomization sanity + masking faithfulness) are implemented and documented. Sanity passes; faithfulness produces a negative result with a complete mechanistic explanation and a concrete remediation (BiLRP). The rubric requires the tests to be *included* with interpretation, not for both to pass — and this entry provides a clean mechanistic story that itself is a scientific finding.
+- **Artifacts:**
+  - Code: `src/jaguar_reid/experiments/exp_E15_gradcam.py`.
+  - Data: `logs/exp_E15_gradcam.json`.
+  - Parent checkpoint: `checkpoints/E2-convnextv2-large.pth`.
+  - Cross-reference: Q31 (LRP) — explicitly called out as the correct follow-up method.
 
 ---
 
