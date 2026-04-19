@@ -4,7 +4,9 @@ You are an autonomous agent operating end-to-end on the Jaguar Re-Identification
 
 ## Mission (one sentence)
 
-Maximize the total assignment grade by simultaneously (a) producing ≥6 valid documented experiments per `docs/assessment.md`, and (b) reaching the **top 10% of the public Kaggle leaderboard** for the [Round 2 Jaguar Re-ID Challenge](https://www.kaggle.com/competitions/round-2-jaguar-reidentification-challenge/).
+Maximize the total assignment grade by simultaneously (a) producing ≥6 valid documented experiments per `docs/assessment.md`, and (b) scoring as high as possible on the Round 2 Jaguar Re-ID Challenge via late submissions (the official deadline — 2026-03-17 — has passed; instructor has explicitly approved late submission).
+
+> **Submission context — important for autonomous execution.** The official Kaggle deadline passed before first session. Submissions now go in as "Late Submission" — they are scored and retrieved via the normal API, but do NOT appear on the public leaderboard ranking. This is the contract the instructor approved. Do NOT halt on this condition; it is already known and accepted.
 
 ## Success criteria
 
@@ -14,20 +16,22 @@ You are done when ALL of the following are true:
 2. Total of **≥8 valid experiments** (target buffer above the 6-solo minimum) with at least one entry in each of these high-leverage categories: backbone comparison (Q5), loss comparison (Q12), background reliance (Q26), Round1-vs-Round2 delta (Q30), k-reciprocal re-ranking (Q28).
 3. A 1-page PDF report at `report.pdf` covering EDA + Model Training & Evaluation, summarizing the MD docs.
 4. W&B project `jaguar-reid-jreiml` is public and contains every training run linked from the MD docs. Every run logs `num_parameters`, all hyperparameters, train/val identity-balanced mAP curves, and saves checkpoint artifacts.
-5. Best Kaggle public LB submission ranks in the **top 10%** of the Round 2 leaderboard at submission time.
+5. At least one accepted Kaggle late submission to Round 2, with the reported score recorded in `submissions.log`. Stretch target: beat the **top-10% threshold of the final public leaderboard** (≈ 0.933 mAP at freeze, Round 2) — track this, but do NOT gate completion on it, because late submissions are not on the ranked LB.
 6. Subagent self-review (see `Self-review rules` below) confirms that EVERY experiment entry would pass the rubric and that no submission contains test-set leakage.
 
 ## Operating mode
 
 - **Fully autonomous.** Do not stop to ask for approval. Decide, execute, document.
 - **Self-correct via subagents**, not via the user. Spawn `general-purpose`, `Explore`, or `Plan` agents (and the `review` / `security-review` skills where relevant) at every checkpoint listed in `Self-review rules`.
-- **Only halt** for: (a) success criteria met, (b) hardware/credential failure you cannot resolve, (c) you discover the rubric/competition rules have changed in a way that invalidates your plan, (d) two consecutive identical failure modes after a real attempt to fix.
+- **Only halt** for: (a) success criteria met, (b) hardware/credential failure you cannot resolve AND preflight (Phase 0 Step 1) cannot unblock, (c) you discover the rubric/competition rules have changed in a way that invalidates your plan, (d) two consecutive identical failure modes after a real attempt to fix.
+- **Do NOT halt** on these already-known conditions: the Kaggle deadline being past (instructor approved late submission), the public LB not updating (late submissions bypass it), or the absence of `~/.kaggle/kaggle.json` (auth works via env vars — see Tooling section).
 
 ## Dataset & competition
 
 - Dataset: <https://huggingface.co/datasets/jaguaridentification/jaguars>
-- Round 2 competition (test set with backgrounds removed) is the **primary** target for the leaderboard bonus — fewer participants → easier top-10%.
-- Round 1 (backgrounds intact) is used for the Q30 R1-vs-R2 delta experiment.
+- Round 2 competition (test set with backgrounds removed) is the primary submission target. Round 2 closed 2026-03-17 22:55 UTC; submissions now go in as Late Submission and are scored but unranked. Final LB top-10% threshold at freeze: ≈ 0.933 mAP. Use that as the stretch target.
+- Round 1 (backgrounds intact) closed 2026-03-14 22:59 UTC; also accepts late submissions. Used only for the Q30 R1-vs-R2 delta experiment.
+- **Kaggle rules acceptance is a one-time web-UI action** — it has already been done for both rounds by the user. If Kaggle returns a 403 with `RulesAcceptanceRequired`, the token is wrong or a new competition was added; do not try to work around it — surface a single, specific message.
 - Baseline notebook to fork: [MegaDescriptor + ArcFace by @andandand](https://www.kaggle.com/code/andandand/jaguarreidentification-megadescriptor-arcfaceloss). Baseline mAP ≈ 0.741. Single-run MegaDescriptor+ArcFace experiments that fail to beat 0.741 are *invalid* per the rubric (structured studies are exempt).
 
 ## Phased plan
@@ -39,18 +43,25 @@ Execute phases in order. Within a phase, parallelize independent steps. Each pha
 **Goal:** A reproducible baseline + eval harness + submission script, no experiments yet.
 
 Tasks:
-1. Port the Kaggle baseline notebook into a Python module structure (`src/jaguar_reid/{data,model,train,eval,submit}.py`). Do NOT keep notebook code as a notebook for execution — notebooks are for final delivery only (see Phase 5).
-2. Download the HF dataset to local writable storage (NEVER write to NFS/Ceph). Verify checksum / row count against the HF dataset card.
-3. Establish a **fixed identity-disjoint validation split** (no identity appears in both train and val). Persist the split to `splits/val_v1.json`. Every experiment uses this exact split unless the experiment explicitly varies it.
-4. Implement `eval/identity_balanced_map.py` returning a single float. Cross-check against the official Kaggle metric description.
-5. Wire W&B integration. Project: `jaguar-reid-jreiml`. Log `num_parameters`, all config keys, train/val mAP per epoch.
-6. Implement `submit.py` that produces a Kaggle-format submission TSV/CSV from a checkpoint. Validate format on a 10-row dry run before any real submission.
-7. Train the baseline (MegaDescriptor-L-384 + ArcFace, config exactly per `docs/kaggle.md`). Confirm val mAP ≥ 0.741 ± noise. If lower, debug the harness — do not advance.
+1. **Preflight access check — MANDATORY FIRST STEP, no GPU work before this passes.** This catches credential/access problems in seconds instead of hours. Do all five in a single short script; any failure is a specific, actionable error to surface, not a reason to retry blindly:
+   1. `source /code/jaguar-re-id/.env`; export `KAGGLE_USERNAME=jreiml`, `KAGGLE_KEY=$KAGGLE_API_TOKEN`; run `kaggle competitions download -c round-2-jaguar-reidentification-challenge -f sample_submission.csv` to a temp dir. Must succeed. (If 403 `RulesAcceptanceRequired`: instructor needs to re-accept or the competition was replaced — stop and ask.)
+   2. Same for Round 1 (`-c jaguar-re-id`).
+   3. `wandb login --relogin $WANDB_API_KEY` and confirm a no-op run init succeeds against project `jaguar-reid-jreiml`.
+   4. `hf auth whoami` succeeds (or equivalent token check) and the dataset `jaguaridentification/jaguars` is resolvable.
+   5. `nvidia-smi` shows the H100, `/virtualenv/bin/python3 -c "import torch; assert torch.cuda.is_available()"` passes.
+2. Port the Kaggle baseline notebook into a Python module structure (`src/jaguar_reid/{data,model,train,eval,submit}.py`). Do NOT keep notebook code as a notebook for execution — notebooks are for final delivery only (see Phase 5).
+3. Download the HF dataset to local writable storage (NEVER write to NFS/Ceph). Verify checksum / row count against the HF dataset card.
+4. Establish a **fixed identity-disjoint validation split** (no identity appears in both train and val). Persist the split to `splits/val_v1.json`. Every experiment uses this exact split unless the experiment explicitly varies it.
+5. Implement `eval/identity_balanced_map.py` returning a single float. Cross-check against the official Kaggle metric description.
+6. Wire W&B integration. Project: `jaguar-reid-jreiml`. Log `num_parameters`, all config keys, train/val mAP per epoch.
+7. Implement `submit.py` that produces a Kaggle-format submission TSV/CSV from a checkpoint. Validate format on a 10-row dry run against the downloaded `sample_submission.csv` (columns + row count must match) **before** any real submission. Also do a single end-to-end late-submission probe with the sample file to confirm the submission pipeline works — discard the score.
+8. Train the baseline (MegaDescriptor-L-384 + ArcFace, config exactly per `docs/kaggle.md`). Confirm val mAP ≥ 0.741 ± noise. If lower, debug the harness — do not advance.
 
 **Done gate (Phase 0):**
+- Preflight (step 1) passed on this session.
 - `pytest -q` (or equivalent) passes for `data`, `eval`, `submit` modules.
 - Baseline run logged to W&B with mAP ≥ 0.741 on the fixed val split.
-- One real Kaggle submission of the baseline accepted, public score recorded.
+- One real Kaggle late submission of the baseline accepted, reported score recorded in `submissions.log`.
 - Subagent code review (spawn `general-purpose` with prompt: "Audit `src/jaguar_reid/*` for test-set leakage, eval-metric correctness, and reproducibility. Look at split construction, augmentation locations, ArcFace head usage at inference time. Report under 300 words.") returns clean.
 
 ### Phase 1 — EDA experiments (cheap, no full training)
@@ -97,7 +108,7 @@ If you invoke autoresearch in this phase, the inline config MUST set:
 - Optional: **Q19 model soup** if checkpoints are weight-compatible.
 - Final Kaggle submission of best ensemble or single model to Round 2.
 
-**Daily Kaggle submission budget:** Maximum 3 submissions per day to Round 2. Maximum 1 to Round 1 (only used for Q30 + a sanity check). Track usage in `submissions.log`.
+**Daily Kaggle submission budget:** Maximum 3 submissions per day to Round 2. Maximum 1 to Round 1 (only used for Q30 + a sanity check). Track usage in `submissions.log`. Late-submission quotas may differ from the official-period quotas — if the API rejects, record the error and back off, do not retry in a loop.
 
 ### Phase 5 — Deliverables
 
@@ -131,8 +142,8 @@ If an entry would not pass the Q&A rubric in `docs/assessment.md`, do not commit
 - **Never reinstall, upgrade, or `pip install torch`.** The system torch at `/usr/local/lib/python3.12/dist-packages/torch` is a custom NVIDIA build with CUDA. Use `--no-deps` when installing packages that depend on torch.
 - Network drives (NFS, Ceph) are read-only. Write all checkpoints, logs, dataset cache, and submissions to local disk under `/code/jaguar-re-id/{checkpoints,logs,cache,submissions}`.
 - GPU: `CUDA_VISIBLE_DEVICES=0` (single H100). One training job at a time on this GPU.
-- W&B: project `jaguar-reid-jreiml`. Log `num_parameters` on every run.
-- Kaggle CLI: configure `~/.kaggle/kaggle.json` once; reuse for all submissions.
+- W&B: project `jaguar-reid-jreiml`. Log `num_parameters` on every run. API key lives in `/code/jaguar-re-id/.env` as `WANDB_API_KEY`.
+- Kaggle CLI: auth via env vars — `source /code/jaguar-re-id/.env && export KAGGLE_USERNAME=jreiml KAGGLE_KEY=$KAGGLE_API_TOKEN`. The token in `.env` is a PAT (starts with `KGA`). Do NOT create `~/.kaggle/kaggle.json`; env vars are the canonical path. Competition rules already accepted for both `jaguar-re-id` and `round-2-jaguar-reidentification-challenge` by the user.
 - Hugging Face: use the `hf` CLI (skill `hf-cli`) for dataset download and any artifact upload.
 
 ## Job orchestration

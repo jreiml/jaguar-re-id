@@ -1,1 +1,10 @@
 .env
+
+cache/
+checkpoints/
+logs/
+submissions/
+wandb/
+*.pyc
+__pycache__/
+.pytest_cache/
