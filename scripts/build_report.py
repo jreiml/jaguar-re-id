@@ -111,9 +111,11 @@ def build(out_path: Path) -> Path:
         "<b>Efficient-model comparison (E18, Q18, 1.0 credit).</b> Two ~90M backbones beat MegaDescriptor-L-384 (195M) at its native "
         "protocol: DINOv2-B/14 0.634 and ConvNeXtV2-B 0.637 vs Mega-L 0.598. Pareto-dominant at 2.25× fewer params — relevant for edge "
         "camera-trap deployment.<br/>"
-        "<b>Summary of credits claimed (13 experiments, sum ≈ 17.6).</b> EDA (6): E1 (1.0) + E3 (1.0) + E4 (1.0) + E5 (1.5 w/ Q26) + "
-        "E11 (1.0) + E15 GradCAM (1.0). Leaderboard (7 incl. calibration): E2 (1.60) + E6 (2.50) + E7 (2.00) + E8 (1.00) + E9 (1.00) + "
-        "E13 (1.00) + E18 (1.00). Solo minimum is 6 experiments — we deliver 13."
+        "<b>Optimizer comparison (E23, Q23, 1.0 credit).</b> AdamW 0.682 ≈ RMSProp 0.682 > SGDm 0.674 — all within 1σ of the E13 noise "
+        "floor. SGDm converges ~3× faster (peak @ epoch 9 vs 29) but lands marginally lower.<br/>"
+        "<b>Summary of credits claimed (14 experiments, sum ≈ 18.6).</b> EDA (6): E1 (1.0) + E3 (1.0) + E4 (1.0) + E5 (1.5 w/ Q26) + "
+        "E11 (1.0) + E15 GradCAM (1.0). Leaderboard (8 incl. calibration): E2 (1.60) + E6 (2.50) + E7 (2.00) + E8 (1.00) + E9 (1.00) + "
+        "E13 (1.00) + E18 (1.00) + E23 (1.00). Solo minimum is 6 experiments — we deliver 14."
     )
     p2 = Paragraph(model_text, body)
     w2, h2 = p2.wrap(W - 2 * ml, 130 * mm)
