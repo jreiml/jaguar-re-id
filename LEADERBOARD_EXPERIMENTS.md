@@ -108,7 +108,7 @@
 
 - **Interpretation:**
   - **Seed-induced std ≈ 0.0112** on the 6-identity val set. The ±1 σ band is ≈ 2.2 % of mAP — small enough that E2's backbone ranking (0.15 mAP span, ≈13 σ) is unambiguously significant, but big enough that E6's loss ranking (0.017 span, ≈1.5 σ) is only weakly resolved (see E6's statistical caveat).
-  - **Range is 0.032** across 5 seeds — the worst-best gap is comparable to the dedup penalty in E11 (0.034). Any single-seed ranking of near-tied configurations should therefore be validated against a 3+ seed repeat before claiming significance.
+  - **Range is 0.032** across 5 seeds — the worst-best gap is **exactly** what the E11 hardening also found (the single-seed E11 result was a seed-42 outlier that happened to be on the low-end of this range; the 4-seed E11 retrial brought Δ back to near-zero). Any single-seed ranking of near-tied configurations must be validated against a 3+ seed repeat before claiming significance.
   - **Seed=2024 at 0.6945** becomes the new best single-model checkpoint; we use it for ensemble / downstream submissions going forward.
   - **Calibrating existing entries:** The E9 delta (R1−R2 = −0.235) is ≫ 10 σ, so unambiguously real. The E7 rerank gain over baseline (+0.025 to +0.035) is ≈ 2-3 σ on val — statistically present but a follow-up Kaggle submission is the honest test (noted in E7).
   - **Follow-up (optional):** extend to 10 seeds if Q22 is graded strictly — 5 seeds are within Q22's "5 to 10" guidance but closer to the minimum.
